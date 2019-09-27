@@ -67,6 +67,9 @@ impl Chain {
 
         loop {
             let possible_words = &self.map[&cursor];
+
+            // Any entry in the map is guaranteed to have at least one word in
+            // it, so this unwrap is okay.
             let next_word = possible_words.choose(&mut rng).unwrap();
 
             if let Some(next_word) = next_word {
