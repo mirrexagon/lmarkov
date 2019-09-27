@@ -45,12 +45,25 @@ impl Chain {
     }
 
     pub fn generate(&self) -> String {
+        // Start with a key of all `None` to match starting from the start of
+        // one of the training inputs.
+        let seed = vec![None; self.order];
+
+        self.generate_from_seed(&seed).unwrap()
+    }
+
+    /// Generate a string based on some seed words.
+    /// Returns `None` if there is no way to start a generated string with
+    /// that seed, eg. it is longer than `self.order`.
+    pub fn generate_from_seed(&self, seed: &Vec<Option<String>>) -> Option<String> {
+        if !self.map.contains_key(seed) {
+            return None;
+        }
+
         let mut rng = rand::thread_rng();
         let mut result: Vec<String> = Vec::new();
 
-        // Start with a key of all `None` to match starting from the start of
-        // one of the training inputs.
-        let mut cursor = vec![None; self.order];
+        let mut cursor = seed.clone();
 
         loop {
             let possible_words = &self.map[&cursor];
@@ -69,6 +82,6 @@ impl Chain {
             cursor.push(next_word.clone());
         }
 
-        result.join(" ")
+        Some(result.join(" "))
     }
 }
