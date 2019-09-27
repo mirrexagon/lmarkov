@@ -2,15 +2,119 @@
 mod tests;
 
 use std::collections::HashMap;
+use std::fmt;
 
 use rand::seq::SliceRandom;
+use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+
+const KEY_NO_WORD: &str = "\n";
+const KEY_SEPARATOR: &str = " ";
+
+/// A sequence of words, used as the key in a `Chain`'s map.
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+pub struct ChainKey(Vec<Option<String>>);
+
+impl ChainKey {
+    pub fn blank(order: usize) -> Self {
+        ChainKey(vec![None; order])
+    }
+
+    pub fn from_vec(vec: Vec<Option<String>>) -> Self {
+        ChainKey(vec)
+    }
+
+    pub fn to_vec(self) -> Vec<Option<String>> {
+        self.0
+    }
+
+    pub fn advance(&mut self, next_word: &Option<String>) {
+        self.0 = self.0[1..self.0.len()].to_vec();
+        self.0.push(next_word.clone());
+    }
+
+    fn to_string(&self) -> String {
+        let mut result = String::new();
+
+        let mut first = true;
+
+        for word in &self.0 {
+            if first {
+                first = false;
+            } else {
+                result.push_str(KEY_SEPARATOR);
+            }
+
+            if let Some(word) = word {
+                result.push_str(&word);
+            } else {
+                result.push_str(KEY_NO_WORD);
+            }
+        }
+
+        result
+    }
+
+    /// TODO: Check input for correctness.
+    fn from_str(string: &str) -> Self {
+        let mut result = Vec::new();
+
+        for word in string.split(KEY_SEPARATOR) {
+            if word == KEY_NO_WORD {
+                result.push(None);
+            } else {
+                result.push(Some(word.to_string()));
+            }
+        }
+
+        ChainKey(result)
+    }
+}
+
+#[cfg(feature = "serialization")]
+impl Serialize for ChainKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+#[cfg(feature = "serialization")]
+struct ChainKeyVisitor;
+
+#[cfg(feature = "serialization")]
+impl<'de> Visitor<'de> for ChainKeyVisitor {
+    type Value = ChainKey;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a string")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(ChainKey::from_str(value))
+    }
+}
+
+#[cfg(feature = "serialization")]
+impl<'de> Deserialize<'de> for ChainKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(ChainKeyVisitor)
+    }
+}
 
 /// A Markov chain.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub struct Chain {
     /// A map from `order` words to the possible following words.
-    /// `None` means the start or end of a training input.
-    map: HashMap<Vec<Option<String>>, Vec<Option<String>>>,
+    map: HashMap<ChainKey, Vec<Option<String>>>,
     order: usize,
 }
 
@@ -39,7 +143,10 @@ impl Chain {
             let key = &window[..self.order];
             let word = &window[self.order];
 
-            let map_entry = self.map.entry(key.to_vec()).or_insert(Vec::new());
+            let map_entry = self
+                .map
+                .entry(ChainKey::from_vec(key.to_vec()))
+                .or_insert(Vec::new());
             map_entry.push(word.clone());
         }
     }
@@ -48,7 +155,7 @@ impl Chain {
     pub fn generate(&self) -> String {
         // Start with a key of all `None` to match starting from the start of
         // one of the training inputs.
-        let seed = vec![None; self.order];
+        let seed = ChainKey::blank(self.order);
 
         self.generate_from_seed(&seed).unwrap()
     }
@@ -56,7 +163,7 @@ impl Chain {
     /// Generate a string based on some seed words.
     /// Returns `None` if there is no way to start a generated string with
     /// that seed, eg. it is longer than `self.order`.
-    pub fn generate_from_seed(&self, seed: &Vec<Option<String>>) -> Option<String> {
+    pub fn generate_from_seed(&self, seed: &ChainKey) -> Option<String> {
         if !self.map.contains_key(seed) {
             return None;
         }
@@ -82,8 +189,7 @@ impl Chain {
 
             // Advance the cursor along by popping the front and appending the
             // new word on the end.
-            cursor = cursor[1..self.order].to_vec();
-            cursor.push(next_word.clone());
+            cursor.advance(next_word);
         }
 
         Some(result.join(" "))
@@ -92,99 +198,12 @@ impl Chain {
     /// Serialize this chain to JSON.
     #[cfg(feature = "serialization")]
     pub fn to_json(&self) -> serde_json::Result<String> {
-        let serializable_chain = serialization::SerializableChain::from(self.clone());
-        serde_json::to_string(&serializable_chain)
+        serde_json::to_string(self)
     }
 
     /// Load a chain from JSON.
     #[cfg(feature = "serialization")]
     pub fn from_json(json: &str) -> serde_json::Result<Self> {
-        let serializable_chain: serialization::SerializableChain = serde_json::from_str(json)?;
-        Ok(Chain::from(serializable_chain))
-    }
-}
-
-#[cfg(feature = "serialization")]
-mod serialization {
-    use super::Chain;
-    use serde::{Deserialize, Serialize};
-    use std::collections::HashMap;
-
-    /// A form of chain that can be serialized by `serde_json`.
-    #[derive(Debug, Serialize, Deserialize)]
-    pub struct SerializableChain {
-        map: HashMap<String, Vec<Option<String>>>,
-        order: usize,
-    }
-
-    impl From<Chain> for SerializableChain {
-        fn from(mut chain: Chain) -> SerializableChain {
-            let mut new_map = HashMap::new();
-
-            for (key, words) in chain.map.drain() {
-                new_map.insert(key_to_string(&key), words);
-            }
-
-            SerializableChain {
-                map: new_map,
-                order: chain.order,
-            }
-        }
-    }
-
-    impl From<SerializableChain> for Chain {
-        fn from(mut chain: SerializableChain) -> Chain {
-            let mut new_map = HashMap::new();
-
-            for (key, words) in chain.map.drain() {
-                new_map.insert(string_to_key(&key), words);
-            }
-
-            Chain {
-                map: new_map,
-                order: chain.order,
-            }
-        }
-    }
-
-    const NO_WORD: &str = "\n";
-    const SEPARATOR: &str = " ";
-
-    /// Convert a `Vec<Option<String>>` to a string for serialization.
-    fn key_to_string(key: &[Option<String>]) -> String {
-        let mut result = String::new();
-
-        let mut first = true;
-
-        for word in key {
-            if first {
-                first = false;
-            } else {
-                result.push_str(SEPARATOR);
-            }
-
-            if let Some(word) = word {
-                result.push_str(word);
-            } else {
-                result.push_str(NO_WORD);
-            }
-        }
-
-        result
-    }
-
-    /// Convert a string generated by `key_to_string()` to a `Vec<Option<String>>`
-    fn string_to_key(key: &str) -> Vec<Option<String>> {
-        let mut result = Vec::new();
-
-        for word in key.split(SEPARATOR) {
-            if word == NO_WORD {
-                result.push(None);
-            } else {
-                result.push(Some(word.to_string()));
-            }
-        }
-
-        result
+        serde_json::from_str(json)
     }
 }
