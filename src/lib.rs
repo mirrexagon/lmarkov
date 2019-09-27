@@ -2,12 +2,18 @@
 mod tests;
 
 use std::collections::HashMap;
+
+#[cfg(feature = "serialization")]
 use std::fmt;
 
 use rand::seq::SliceRandom;
+
+#[cfg(feature = "serialization")]
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 
+#[cfg(feature = "serialization")]
 const KEY_NO_WORD: &str = "\n";
+#[cfg(feature = "serialization")]
 const KEY_SEPARATOR: &str = " ";
 
 /// A sequence of words, used as the key in a `Chain`'s map.
@@ -32,6 +38,7 @@ impl ChainKey {
         self.0.push(next_word.clone());
     }
 
+    #[cfg(feature = "serialization")]
     fn to_string(&self) -> String {
         let mut result = String::new();
 
@@ -55,6 +62,7 @@ impl ChainKey {
     }
 
     /// TODO: Check input for correctness.
+    #[cfg(feature = "serialization")]
     fn from_str(string: &str) -> Self {
         let mut result = Vec::new();
 
