@@ -3,11 +3,14 @@ mod tests;
 
 use std::collections::HashMap;
 
+use rand::seq::SliceRandom;
+
 /// A Markov chain.
 #[derive(Debug)]
 pub struct Chain {
     /// A map from `order` words to the possible following words.
-    map: HashMap<Vec<Option<String>>, Vec<String>>,
+    /// `None` means the start or end of a training input.
+    map: HashMap<Vec<Option<String>>, Vec<Option<String>>>,
     order: usize,
 }
 
@@ -36,10 +39,36 @@ impl Chain {
             let key = &window[..self.order];
             let word = &window[self.order];
 
-            if let Some(word) = word {
-                let mut map_entry = self.map.entry(key).or_insert(Vec::new());
-                map_entry.push(word.to_string());
-            }
+            let map_entry = self.map.entry(key.to_vec()).or_insert(Vec::new());
+            map_entry.push(word.clone());
         }
+    }
+
+    pub fn generate(&self) -> String {
+        let mut rng = rand::thread_rng();
+        let mut result: Vec<String> = Vec::new();
+
+        // Start with a key of all `None` to match starting from the start of
+        // one of the training inputs.
+        let mut cursor = vec![None; self.order];
+
+        loop {
+            let possible_words = &self.map[&cursor];
+            let next_word = possible_words.choose(&mut rng).unwrap();
+
+            if let Some(next_word) = next_word {
+                result.push(next_word.clone());
+            } else {
+                // Terminator word.
+                break;
+            }
+
+            // Advance the cursor along by popping the front and appending the
+            // new word on the end.
+            cursor = cursor[1..self.order].to_vec();
+            cursor.push(next_word.clone());
+        }
+
+        result.join(" ")
     }
 }

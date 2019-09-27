@@ -5,3 +5,4 @@ authors = ["Andrew Abbott <mirrexagon@mirrexagon.com>"]
 edition = "2018"
 
 [dependencies]
+rand = "0.7"
