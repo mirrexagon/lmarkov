@@ -160,12 +160,12 @@ impl Chain {
     }
 
     // Generate a string.
-    pub fn generate(&self) -> String {
+    pub fn generate(&self) -> Option<String> {
         // Start with a key of all `None` to match starting from the start of
         // one of the training inputs.
         let seed = ChainKey::blank(self.order);
 
-        self.generate_from_seed(&seed).unwrap()
+        self.generate_from_seed(&seed)
     }
 
     /// Generate a string based on some seed words.
