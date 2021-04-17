@@ -1,5 +1,5 @@
 # lmarkov
-A Markov chain library.
+A simple Markov chain library for text.
 
 ## License
 Licensed under either of
